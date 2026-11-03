@@ -30,13 +30,6 @@ function clearCurrentUser() { localStorage.removeItem(AUTH_USER_KEY); }
 
 // 页面守卫：未登录 → 隐藏主内容 + 显示 auth-screen
 function initAuthGuard() {
-  const user = getCurrentUser();
-  if (!user) {
-    lockPage();
-  } else {
-    unlockPage(user);
-  }
-
   // 弹窗里的登录 / 注册 切换
   document.querySelectorAll(".auth-switch").forEach((el) => {
     el.addEventListener("click", () => {
@@ -65,53 +58,6 @@ function initAuthGuard() {
     showAuthScreen();
   });
   document.getElementById("navLogout").addEventListener("click", doLogout);
-
-  // Nav 的 section 锚点 → 也做守卫（未登录时先弹窗）
-  document.querySelectorAll('.nav-links a[href^="#"]').forEach((a) => {
-    a.addEventListener("click", (e) => {
-      if (!isLoggedIn()) {
-        e.preventDefault();
-        document.getElementById("loginForm").classList.remove("hidden");
-        document.getElementById("registerForm").classList.add("hidden");
-        showAuthScreen();
-      }
-    });
-  });
-
-  // Hero 两个 CTA 按钮 → 守卫
-  document.querySelectorAll(".hero-buttons a").forEach((a) => {
-    a.addEventListener("click", (e) => {
-      if (!isLoggedIn()) {
-        e.preventDefault();
-        document.getElementById("loginForm").classList.remove("hidden");
-        document.getElementById("registerForm").classList.add("hidden");
-        showAuthScreen();
-      }
-    });
-  });
-}
-
-function lockPage() {
-  document.querySelectorAll(".section, .hero").forEach((el) => el.classList.add("hidden"));
-  document.getElementById("authScreen").classList.remove("hidden");
-  document.getElementById("navLoginBtn").classList.remove("hidden");
-  document.getElementById("navUser").classList.add("hidden");
-}
-
-function unlockPage(user) {
-  document.getElementById("authScreen").classList.add("hidden");
-  document.querySelectorAll(".section, .hero").forEach((el) => el.classList.remove("hidden"));
-  document.getElementById("navLoginBtn").classList.add("hidden");
-  document.getElementById("navUser").classList.remove("hidden");
-  document.getElementById("navName").textContent = user.username;
-  // 昵称首字做头像
-  const avatar = document.querySelector(".nav-avatar");
-  if (avatar) avatar.textContent = user.username.charAt(0) || "🧑";
-}
-
-function showAuthScreen() {
-  document.querySelectorAll(".section, .hero").forEach((el) => el.classList.add("hidden"));
-  document.getElementById("authScreen").classList.remove("hidden");
 }
 
 function clearAuthTips() {
@@ -172,6 +118,89 @@ function doLogout() {
   document.getElementById("authAccount").value = "";
   document.getElementById("authPassword").value = "";
 }
+
+/* ============================================================
+   🛤️ 轻量 Hash Router（6 个独立路由页面）
+   ============================================================ */
+const ROUTES = {
+  "/home":     { view: "#hero",     title: "首页 · 宠物星球",  protect: false },
+  "/create":   { view: "#create",   title: "创建宠物",         protect: true  },
+  "/play":     { view: "#play",     title: "陪它玩",           protect: true  },
+  "/alarm":    { view: "#alarm",    title: "宠物闹钟",         protect: true  },
+  "/memories": { view: "#memories", title: "回忆墙",           protect: true  },
+  "/farewell": { view: "#farewell", title: "告别",             protect: true  },
+};
+
+const Router = {
+  current: "/home",
+  go(path) { if (path !== this.current) location.hash = path; },
+  init() {
+    window.addEventListener("hashchange", () => this.render());
+    if (!location.hash) location.hash = "/home";
+    this.render();
+  },
+  render() {
+    const path = (location.hash || "#/home").replace(/^#/, "") || "/home";
+    const route = ROUTES[path] || ROUTES["/home"];
+
+    // 🔐 路由守卫
+    if (route.protect && !isLoggedIn()) {
+      lockPage();
+      document.getElementById("loginForm").classList.remove("hidden");
+      document.getElementById("registerForm").classList.add("hidden");
+      document.title = "登录 · 宠物星球";
+      return;
+    }
+
+    // 显示顶部 Nav + 隐藏 auth 弹窗
+    document.getElementById("authScreen").classList.add("hidden");
+
+    // 🎯 单显目标视图，隐藏其他
+    Object.entries(ROUTES).forEach(([key, r]) => {
+      const el = document.querySelector(r.view);
+      if (el) el.classList.toggle("hidden", key !== path);
+    });
+
+    // 🏷️ Nav active 态
+    document.querySelectorAll('.nav-links a').forEach(a => a.classList.remove("active"));
+    const active = document.querySelector(`.nav-links a[href="#${path}"]`);
+    if (active) active.classList.add("active");
+
+    // 👤 Nav 用户态
+    updateNavUser();
+
+    // 📄 页面标题
+    document.title = route.title + " · 宠物星球";
+
+    this.current = path;
+    window.scrollTo({ top: 0, behavior: "auto" });
+  },
+};
+
+function updateNavUser() {
+  const user = getCurrentUser();
+  const loginBtn = document.getElementById("navLoginBtn");
+  const userBox  = document.getElementById("navUser");
+  if (user) {
+    loginBtn.classList.add("hidden");
+    userBox.classList.remove("hidden");
+    document.getElementById("navName").textContent = user.username;
+    const avatar = document.querySelector(".nav-avatar");
+    if (avatar) avatar.textContent = user.username.charAt(0).toUpperCase();
+  } else {
+    loginBtn.classList.remove("hidden");
+    userBox.classList.add("hidden");
+  }
+}
+
+// 覆盖 auth 模块里的同名函数（让它们只做 auth 层面的事，router 负责视图）
+function lockPage() {
+  Object.values(ROUTES).forEach((r) => document.querySelector(r.view)?.classList.add("hidden"));
+  document.getElementById("authScreen").classList.remove("hidden");
+  updateNavUser();
+}
+function unlockPage() { Router.render(); }
+function showAuthScreen() { lockPage(); }
 
 /* ---------------- 0. 星空装饰 ---------------- */
 (function initDecor() {
@@ -477,7 +506,7 @@ document.getElementById("savePetBtn").addEventListener("click", () => {
   renderPet();
   document.getElementById("chatBotAvatar").textContent = pet.breedEmoji || (pet.family === "dog" ? "🐶" : "🐱");
   showMood("好开心呀~ 🥰");
-  smoothGo("#play");
+  Router.go("/play");
 });
 
 document.getElementById("resetPetBtn").addEventListener("click", () => {
@@ -775,7 +804,7 @@ function sendChat() {
 }
 
 document.getElementById("toggleHistoryBtn").addEventListener("click", () => {
-  smoothGo("#memories");
+  Router.go("/memories");
   document.getElementById("chatWindow").scrollTop = 0;
 });
 
@@ -903,11 +932,12 @@ document.getElementById("farewellCloseBtn").addEventListener("click", () => {
 /* ============================================================
    🛠️ 工具 + 首次渲染
    ============================================================ */
-function smoothGo(sel) { document.querySelector(sel)?.scrollIntoView({ behavior: "smooth" }); }
+// smoothGo 已被 Router.go 替代
 
 restoreFormFromPet();
 renderPet();
 renderChatHistory();
 
-// 登录守卫（放最后：依赖已写入的 nav-links / hero-buttons 等 DOM）
+// 先绑定 auth 事件 → 再初始化路由（首次 render 会自动做守卫 + 显隐）
 initAuthGuard();
+Router.init();

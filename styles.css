@@ -144,6 +144,12 @@ body {
   color: var(--white);
   transform: translateY(-2px);
 }
+.nav-links a.active {
+  background: linear-gradient(135deg, var(--pink), var(--pink-light));
+  color: var(--white);
+  box-shadow: 0 4px 14px rgba(255, 143, 177, 0.4);
+  font-weight: 600;
+}
 
 /* ---------- 🌟 Hero ---------- */
 .hero {
