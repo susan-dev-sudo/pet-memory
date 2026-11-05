@@ -1,4 +1,4 @@
-/* ============================================
+﻿/* ============================================
    🌌 宠物星球 · Pet Planet
    🌙 主样式表
    ============================================ */
@@ -463,33 +463,170 @@ textarea { resize: vertical; min-height: 100px; }
 .status-fill.hunger { background: linear-gradient(90deg, #ffa726, #ffcc80); }
 .status-fill.energy { background: linear-gradient(90deg, #66bb6a, #a5d6a7); }
 
-/* 宠物角色 */
+/* ============================================
+   🐾 宠物舞台 · SVG 分层 2D 动画（动态生成）
+   ============================================ */
+/* pet-stage 已在上面 418 行定义：圆形发光舞台背景 */
+
+/* ============ pet-character：内层 relative 容器（固定尺寸给 hitbox/SVG 定位） ============ */
 .pet-character {
   position: relative;
+  width: 280px;
+  height: 280px;
   z-index: 3;
-  display: flex; flex-direction: column; align-items: center;
-  animation: idle-breath 3s ease-in-out infinite;
-}
-@keyframes idle-breath {
-  0%,100% { transform: translateY(0) scale(1); }
-  50%     { transform: translateY(-8px) scale(1.03); }
-}
-
-.pet-avatar {
-  width: 180px; height: 180px;
+  margin: 20px auto 0;
+  /* 圆形发光背景（贴在角色底下） */
+  background: radial-gradient(circle at 50% 45%, #fff5f0 0%, #ffe8f0 55%, #f5c7d8 100%);
   border-radius: 50%;
-  background: linear-gradient(135deg, #fff, #ffe0ec);
-  border: 4px solid #fff;
-  box-shadow: 0 12px 36px rgba(255, 143, 177, 0.4);
-  display: flex; align-items: center; justify-content: center;
-  overflow: hidden;
-  position: relative;
+  box-shadow: 0 16px 40px rgba(255, 143, 177, 0.35), inset 0 0 30px #ffffff80;
+  animation: stage-breathe 4s ease-in-out infinite;
+  overflow: visible;
 }
-.pet-avatar img { width: 100%; height: 100%; object-fit: cover; }
-.pet-avatar .pet-placeholder { font-size: 90px; }
+@keyframes stage-breathe {
+  0%,100% { box-shadow: 0 16px 40px rgba(255,143,177,0.35), inset 0 0 30px #ffffff80; }
+  50%     { box-shadow: 0 20px 50px rgba(255,143,177,0.55), inset 0 0 40px #ffffffcc; }
+}
+/* pet-name-tag 挂在 pet-character 外面（因为 character 是 280x280 舞台，名字贴底部） */
+.pet-character .pet-name-tag {
+  position: absolute;
+  bottom: -42px;
+  left: 50%;
+  transform: translateX(-50%);
+}
 
+/* SVG 铺满舞台，不拦截点击（hitbox 在它上面） */
+.pet-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+/* ============ Hitbox 区域碰撞 ============ */
+.hitbox {
+  position: absolute;
+  pointer-events: auto;
+  cursor: pointer;
+  z-index: 10;
+  background: transparent;
+  transition: background 0.25s, box-shadow 0.25s;
+  border-radius: 50%;
+}
+.hitbox:hover, .hitbox.active {
+  background: rgba(255, 143, 177, 0.22);
+  box-shadow: 0 0 0 3px rgba(255, 143, 177, 0.45), 0 0 22px rgba(255,143,177,0.45);
+  animation: hit-pulse 0.9s ease-in-out infinite;
+}
+@keyframes hit-pulse {
+  0%,100% { transform: scale(1); }
+  50%     { transform: scale(1.08); }
+}
+.hit-head  { width: 46%; height: 38%; top: 8%;  left: 27%; }
+.hit-cheek { width: 22%; height: 14%; top: 43%; left: 19%; }
+.hit-body  { width: 52%; height: 38%; top: 50%; left: 24%; }
+.hit-tail  { width: 20%; height: 55%; top: 20%; right: -2%; border-radius: 40% 60% 50% 50%; }
+
+/* ============ 各层 transform-origin ============ */
+/* 让 SVG 层有默认的小幅度呼吸/摇摆（通过 CSS transform） */
+.layer-tail  { transform-origin: 72% 72%; animation: tail-wag 1.6s ease-in-out infinite; }
+.layer-head  { transform-origin: 50% 80%; animation: head-idle 3.5s ease-in-out infinite; }
+.layer-ears  { transform-origin: 50% 50%; animation: ear-idle 3.2s ease-in-out infinite; }
+.layer-body  { transform-origin: 50% 90%; }
+.layer-eyes  { transform-origin: 50% 50%; }
+.layer-scarf { transform-origin: 50% 50%; }
+.layer-accessory { transform-origin: 50% 100%; }
+
+/* 眨眼（只在眼睛组上） */
+.eye-group { animation: blink 4.2s infinite; transform-origin: center; }
+.eye-right { animation-delay: 0.2s; }
+@keyframes blink {
+  0%,92%,100% { transform: scaleY(1); }
+  95%         { transform: scaleY(0.08); }
+}
+
+/* ============ 关键帧动画 ============ */
+/* 尾巴自然摇摆 */
+@keyframes tail-wag {
+  0%,100% { transform: rotate(-8deg) scaleY(1); }
+  50%     { transform: rotate(22deg)  scaleY(1.02); }
+}
+.tail-fast { animation: tail-fast 0.55s ease-in-out 3 !important; }
+@keyframes tail-fast {
+  0%,100% { transform: rotate(-22deg); }
+  50%     { transform: rotate(28deg); }
+}
+
+/* 头自然晃 */
+@keyframes head-idle {
+  0%,100% { transform: rotate(-2deg) translateY(0); }
+  50%     { transform: rotate(2deg)  translateY(-2px); }
+}
+.head-tilt-left  { animation: head-tilt-L 0.65s ease-out !important; }
+.head-tilt-right { animation: head-tilt-R 0.65s ease-out !important; }
+@keyframes head-tilt-L { 0%{transform:rotate(0)} 35%{transform:rotate(-16deg)} 100%{transform:rotate(-2deg)} }
+@keyframes head-tilt-R { 0%{transform:rotate(0)} 35%{transform:rotate(16deg)}  100%{transform:rotate(2deg)} }
+
+/* 蹭手（头朝下） */
+.head-rub { animation: head-rub 0.8s ease-in-out 2 !important; }
+@keyframes head-rub {
+  0%,100% { transform: rotate(-2deg) translateY(0); }
+  30%     { transform: rotate(-14deg) translateY(8px); }
+  60%     { transform: rotate(10deg)  translateY(5px); }
+}
+
+/* 耳朵抖 */
+@keyframes ear-idle {
+  0%,100% { transform: rotate(0); }
+  45%     { transform: rotate(-3deg); }
+  60%     { transform: rotate(3deg); }
+}
+.ear-twitch { animation: ear-twitch 0.35s ease-in-out 2 !important; }
+@keyframes ear-twitch {
+  0%   { transform: rotate(0); }
+  50%  { transform: rotate(-18deg) scaleY(0.85); }
+  100% { transform: rotate(0); }
+}
+
+/* 整个宠物弹一下 */
+.pet-character.bounce { animation: pet-bounce 0.7s ease-out; }
+@keyframes pet-bounce {
+  0%   { transform: translateY(0); }
+  35%  { transform: translateY(-24px) scale(1.1); }
+  70%  { transform: translateY(4px)  scale(0.96); }
+  100% { transform: translateY(0) scale(1); }
+}
+
+/* 跳舞 */
+.pet-character.dance .layer-head { animation: dance-h 0.5s ease-in-out 6 !important; }
+.pet-character.dance .layer-tail { animation: dance-t 0.4s ease-in-out 8 !important; }
+.pet-character.dance .layer-body { animation: dance-b 0.5s ease-in-out 6 !important; }
+@keyframes dance-h { 0%,100%{transform:rotate(-12deg)} 50%{transform:rotate(12deg)} }
+@keyframes dance-t { 0%,100%{transform:rotate(-35deg)} 50%{transform:rotate(40deg)} }
+@keyframes dance-b { 0%,100%{transform:translateY(0) rotate(-4deg)} 50%{transform:translateY(-6px) rotate(4deg)} }
+
+/* ============ 睡觉（扁身+闭眼） ============ */
+.pet-character.sleepy {
+  /* 让里面的 SVG 稍微扁一点 */
+}
+.pet-character.sleepy .layer-head { transform-origin: 50% 95%; animation: head-sleep 4s ease-in-out infinite; }
+.pet-character.sleepy .layer-eyes .eye-normal { opacity: 0; }
+.pet-character.sleepy .layer-eyes .eye-sleepy { opacity: 1; }
+.pet-character.sleepy .layer-ears { opacity: 0.7; }
+@keyframes head-sleep { 0%,100%{transform:rotate(-1deg)} 50%{transform:rotate(1deg)} }
+
+/* ============ 情绪眼睛切换 ============ */
+.pet-character.mood-happy .layer-eyes .eye-normal { opacity: 0; }
+.pet-character.mood-happy .layer-eyes .eye-happy  { opacity: 1; }
+
+.pet-character.mood-sad .layer-eyes .eye-normal { opacity: 0; }
+.pet-character.mood-sad .layer-eyes .eye-sad    { opacity: 1; }
+
+.pet-character.mood-lazy .layer-eyes .eye-normal { opacity: 0; }
+.pet-character.mood-lazy .layer-eyes .eye-sleepy { opacity: 1; }
+
+/* ============ 名字标签（基础样式，pet-character 内部绝对定位覆盖） ============ */
 .pet-name-tag {
-  margin-top: 14px;
   background: #fff;
   padding: 6px 18px;
   border-radius: 20px;
@@ -497,18 +634,13 @@ textarea { resize: vertical; min-height: 100px; }
   color: var(--pink);
   font-size: 16px;
   box-shadow: var(--shadow-soft);
+  white-space: nowrap;
 }
 
-.pet-costume {
-  position: absolute;
-  top: -20px;
-  font-size: 42px;
-  animation: wiggle 3s ease-in-out infinite;
-}
-
+/* ============ 情绪气泡 ============ */
 .pet-mood-bubble {
   position: absolute;
-  top: -40px; left: 100%;
+  top: -24px; left: 105%;
   background: #fff;
   padding: 8px 16px;
   border-radius: 18px;
@@ -516,6 +648,13 @@ textarea { resize: vertical; min-height: 100px; }
   font-size: 14px;
   color: var(--text-body);
   white-space: nowrap;
+  animation: bubble-pop 0.35s cubic-bezier(.3,1.4,.5,1) both;
+  z-index: 20;
+}
+@keyframes bubble-pop {
+  0%   { transform: scale(0.3) translate(-10px, 20px); opacity: 0; }
+  60%  { transform: scale(1.15) translate(-2px, 0);     opacity: 1; }
+  100% { transform: scale(1) translate(0,0); }
 }
 .pet-mood-bubble::before {
   content: "";
@@ -524,6 +663,21 @@ textarea { resize: vertical; min-height: 100px; }
   transform: translateY(-50%);
   border: 8px solid transparent;
   border-right-color: #fff;
+}
+
+/* 睡觉 zzz */
+.sleep-zzz {
+  position: absolute;
+  top: -14px; right: 0;
+  color: var(--pink);
+  font-weight: 700;
+  font-size: 18px;
+  animation: zzz-float 2s ease-in-out infinite;
+  z-index: 8;
+}
+@keyframes zzz-float {
+  0%,100% { transform: translateY(0) rotate(-6deg); opacity: 0.7; }
+  50%     { transform: translateY(-8px) rotate(6deg);  opacity: 1; }
 }
 
 /* 掉落食物 */

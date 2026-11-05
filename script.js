@@ -1,4 +1,4 @@
-/* ============================================
+﻿/* ============================================
    🌌 宠物星球 · Pet Planet
    🌙 交互脚本 v4（登录守卫 + 分步下拉）
    ============================================ */
@@ -503,7 +503,7 @@ document.getElementById("savePetBtn").addEventListener("click", () => {
   const ageVal = $("petAge").value.trim();
   pet.age = ageVal ? Number(ageVal) : null;
   savePet();
-  renderPet();
+  PetModel.render();
   document.getElementById("chatBotAvatar").textContent = pet.breedEmoji || (pet.family === "dog" ? "🐶" : "🐱");
   showMood("好开心呀~ 🥰");
   Router.go("/play");
@@ -521,36 +521,553 @@ document.getElementById("resetPetBtn").addEventListener("click", () => {
   $("breedDesc").textContent = "按下方顺序选择 → 自动匹配星球上它的专属样式";
   $("soundPlaceholder").classList.remove("hidden");
   $("soundPreview").classList.add("hidden");
-  renderPet();
+  PetModel.render();
 });
 
 /* ============================================================
-   🎨 渲染宠物形象（舞台/闹钟/互动）
+   🐾 PetModel · 2D 分层骨骼宠物（根据创建页参数动态生成）
+   依赖 pet.family / pet.color / pet.body / pet.costume / pet.sleep / pet.stats
    ============================================================ */
-function renderPet() {
-  document.getElementById("petNameTag").textContent = pet.name;
-  const avatar = document.getElementById("petAvatar");
-  avatar.innerHTML = "";
-  const ph = document.createElement("div");
-  ph.className = "pet-placeholder";
-  ph.textContent = pet.breedEmoji || (pet.family === "dog" ? "🐶" : "🐱");
-  avatar.appendChild(ph);
 
-  document.getElementById("petCostume").textContent = pet.costume;
-  document.querySelectorAll(".costume-btn").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.costume === pet.costume);
-  });
-  updateBars();
+/* ---------- 颜色调色板：创建页 color → SVG 主色/肚皮/花纹 ---------- */
+const COLOR_PALETTE = {
+  orange: { main: "#f5a76a", light: "#ffe0b8", belly: "#fff3dc", tip: "#d88a4c", stroke: "#b5683a" },
+  black:  { main: "#2c2c30", light: "#4a4a50",  belly: "#656570", tip: "#1a1a1e", stroke: "#121215" },
+  white:  { main: "#f5f0ea", light: "#ffffff",  belly: "#ffffff", tip: "#d8d0c8", stroke: "#c8bfb4" },
+  grey:   { main: "#8b8d98", light: "#b4b6c2",  belly: "#d8dae2", tip: "#6c6e7a", stroke: "#555763" },
+  blue:   { main: "#7e9ab0", light: "#a8c0d0",  belly: "#dce5ec", tip: "#4d6578", stroke: "#3c5060" },
+  brown:  { main: "#8b5a2b", light: "#b68956",  belly: "#e0c4a0", tip: "#5c3a18", stroke: "#4a2e14" },
+  cream:  { main: "#f0dfc0", light: "#fff5e4",  belly: "#fffaf0", tip: "#c9ad7e", stroke: "#a08560" },
+  calico: { main: "#ffffff", light: "#fff",      belly: "#fff",    tip: "#2a2a2e", stroke: "#2a2a2e", patches: true },
+  tabby:  { main: "#b68956", light: "#e8c090",  belly: "#f4e0c8", tip: "#6b3a1c", stroke: "#4a2610", stripes: true },
+  siamese:{ main: "#f4ecd8", light: "#ffffff",  belly: "#ffffff", tip: "#7a5a3c", stroke: "#4a3420", mask: true },
+};
+const DEFAULT_COLOR = COLOR_PALETTE.orange;
+
+
+/* ============================================================
+   🐱 手绘猫 · 可爱短毛（头大眼圆、三角尖耳、勾尾巴）
+   viewBox 260×260，头半径 r=64（头身比 ≈ 1:0.9 超萌）
+   ============================================================ */
+const CAT_TEMPLATE = `
+<g stroke="{{STROKE}}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" fill="{{MAIN}}">
+
+  <!-- 尾巴（勾子形：先向上再弯尖） -->
+  <g class="layer layer-tail" fill="{{MAIN}}">
+    <path d="M182,180
+             C220,160 224,118 206,102
+             C198,96 206,88 216,92
+             C228,98 226,122 212,142
+             C202,158 190,172 182,180 Z"/>
+    <!-- 尾巴尖白色 -->
+    <ellipse cx="212" cy="96" rx="10" ry="8" fill="{{BELLY}}" stroke="{{STROKE}}"/>
+  </g>
+
+  <!-- 地面阴影 -->
+  <ellipse cx="130" cy="246" rx="72" ry="6" fill="#00000018" stroke="none"/>
+
+  <!-- 身体（短胖圆） -->
+  <g class="layer layer-body">
+    <path d="M64,188
+             C64,152 196,152 196,188
+             C196,222 170,238 140,238
+             L120,238
+             C90,238 64,222 64,188 Z"/>
+    <!-- 肚皮 -->
+    <ellipse cx="130" cy="208" rx="46" ry="30" fill="{{BELLY}}" stroke="none"/>
+    <!-- 前腿 -->
+    <path d="M82,224 Q82,240 90,240 Q98,240 98,226 Z"/>
+    <path d="M162,224 Q162,240 170,240 Q178,240 178,226 Z"/>
+    <!-- 脚（粉垫） -->
+    <ellipse cx="90"  cy="240" rx="11" ry="6" fill="{{BELLY}}" stroke="{{STROKE}}"/>
+    <ellipse cx="170" cy="240" rx="11" ry="6" fill="{{BELLY}}" stroke="{{STROKE}}"/>
+  </g>
+
+  <!-- 耳朵（尖三角 + 内耳粉色） -->
+  <g class="layer layer-ears">
+    <!-- 左耳 -->
+    <path d="M78,92 L66,44 L106,80 Z"/>
+    <path d="M84,86 L74,58 L100,82 Z" fill="{{TIP}}" stroke="none"/>
+    <!-- 右耳 -->
+    <path d="M182,92 L194,44 L154,80 Z"/>
+    <path d="M176,86 L186,58 L160,82 Z" fill="{{TIP}}" stroke="none"/>
+  </g>
+
+  <!-- 头（大圆，r=64，眼在 118 左右） -->
+  <g class="layer layer-head" fill="{{MAIN}}">
+    <circle cx="130" cy="126" r="64"/>
+    <!-- 脸颊腮红（超明显！） -->
+    <ellipse cx="94"  cy="148" rx="14" ry="7" fill="#ffb3c5" stroke="none" opacity="0.85"/>
+    <ellipse cx="166" cy="148" rx="14" ry="7" fill="#ffb3c5" stroke="none" opacity="0.85"/>
+  </g>
+
+  <!-- 眼睛（巨大椭圆 + 双层高光） -->
+  <g class="layer layer-eyes" stroke="none">
+    <!-- 左眼 -->
+    <g class="eye-group eye-left">
+      <g class="eye-normal">
+        <ellipse cx="110" cy="126" rx="12" ry="14" fill="#1a1a1a"/>
+        <ellipse cx="110" cy="126" rx="9"  ry="11" fill="#2a2a2e"/>
+        <circle  cx="113" cy="120" r="5"  fill="#fff"/>
+        <circle  cx="107" cy="132" r="1.8" fill="#fff"/>
+      </g>
+      <g class="eye-happy" opacity="0">
+        <path d="M96,126 Q110,112 124,126" stroke="{{STROKE}}" stroke-width="3.5" fill="none"/>
+      </g>
+      <g class="eye-sleepy" opacity="0">
+        <path d="M96,128 Q110,136 124,128" stroke="{{STROKE}}" stroke-width="2.8" fill="none"/>
+      </g>
+      <g class="eye-sad" opacity="0">
+        <path d="M96,120 Q110,132 124,120" stroke="{{STROKE}}" stroke-width="3.5" fill="none"/>
+      </g>
+    </g>
+    <!-- 右眼 -->
+    <g class="eye-group eye-right">
+      <g class="eye-normal">
+        <ellipse cx="150" cy="126" rx="12" ry="14" fill="#1a1a1a"/>
+        <ellipse cx="150" cy="126" rx="9"  ry="11" fill="#2a2a2e"/>
+        <circle  cx="153" cy="120" r="5"  fill="#fff"/>
+        <circle  cx="147" cy="132" r="1.8" fill="#fff"/>
+      </g>
+      <g class="eye-happy" opacity="0">
+        <path d="M136,126 Q150,112 164,126" stroke="{{STROKE}}" stroke-width="3.5" fill="none"/>
+      </g>
+      <g class="eye-sleepy" opacity="0">
+        <path d="M136,128 Q150,136 164,128" stroke="{{STROKE}}" stroke-width="2.8" fill="none"/>
+      </g>
+      <g class="eye-sad" opacity="0">
+        <path d="M136,120 Q150,132 164,120" stroke="{{STROKE}}" stroke-width="3.5" fill="none"/>
+      </g>
+    </g>
+  </g>
+
+  <!-- 鼻子 + 嘴 + 胡须 -->
+  <g class="layer layer-mouth" stroke="{{STROKE}}" stroke-width="1.6">
+    <!-- 鼻（粉三角） -->
+    <path d="M125,148 L135,148 L130,153 Z" fill="#d0667c"/>
+    <!-- 上唇 -->
+    <path d="M125,153 Q130,156 135,153" fill="none"/>
+    <!-- 微笑 -->
+    <path class="mouth-smile" d="M122,158 Q130,168 138,158" fill="none" stroke-width="2"/>
+    <!-- 胡须（4 根） -->
+    <path d="M86,152 L104,150" stroke="#1a1a1a38" stroke-width="1" fill="none"/>
+    <path d="M86,158 L104,156" stroke="#1a1a1a38" stroke-width="1" fill="none"/>
+    <path d="M174,152 L156,150" stroke="#1a1a1a38" stroke-width="1" fill="none"/>
+    <path d="M174,158 L156,156" stroke="#1a1a1a38" stroke-width="1" fill="none"/>
+  </g>
+
+  <!-- 花纹 / 围巾 / 配饰占位 -->
+  <!-- FUR_MARKS_PLACEHOLDER -->
+  <!-- SCARF_PLACEHOLDER -->
+  <!-- ACCESSORY_PLACEHOLDER -->
+</g>`;
+
+/* ============================================================
+   🐶 手绘狗 · 柴犬/柯基（垂耳卷尾、脸椭圆口鼻突出、大黑鼻）
+   和猫完全不同：耳朵垂、尾巴卷、脸长、鼻子大
+   ============================================================ */
+const DOG_TEMPLATE = `
+<g stroke="{{STROKE}}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" fill="{{MAIN}}">
+
+  <!-- 尾巴（向上卷圈！和猫的勾尾完全不同） -->
+  <g class="layer layer-tail" fill="{{MAIN}}">
+    <path d="M186,176
+             C214,160 216,130 196,120
+             C184,114 178,122 186,132
+             C192,140 202,140 204,148
+             C206,156 198,160 192,156
+             C186,152 184,162 186,176 Z"/>
+  </g>
+
+  <!-- 地面阴影 -->
+  <ellipse cx="130" cy="246" rx="74" ry="6" fill="#00000018" stroke="none"/>
+
+  <!-- 身体（横向更长） -->
+  <g class="layer layer-body">
+    <path d="M58,190
+             C58,150 202,150 202,190
+             C202,226 172,240 140,240
+             L120,240
+             C88,240 58,226 58,190 Z"/>
+    <!-- 肚皮 -->
+    <ellipse cx="130" cy="210" rx="50" ry="32" fill="{{BELLY}}" stroke="none"/>
+    <!-- 前腿 -->
+    <path d="M74,226 Q74,242 82,242 Q90,242 90,228 Z"/>
+    <path d="M170,226 Q170,242 178,242 Q186,242 186,228 Z"/>
+    <!-- 脚 -->
+    <ellipse cx="82"  cy="242" rx="12" ry="6.5" fill="{{BELLY}}" stroke="{{STROKE}}"/>
+    <ellipse cx="178" cy="242" rx="12" ry="6.5" fill="{{BELLY}}" stroke="{{STROKE}}"/>
+  </g>
+
+  <!-- 耳朵（垂耳！和猫的尖耳完全不同） -->
+  <g class="layer layer-ears">
+    <!-- 左耳（垂下来 floppy） -->
+    <path d="M82,92
+             Q70,100 62,130
+             Q58,148 68,156
+             Q82,164 92,148
+             Q98,134 94,110 Z"/>
+    <path d="M74,108 Q68,126 72,142" stroke="{{TIP}}" stroke-width="2" fill="none" opacity="0.6"/>
+    <!-- 右耳 -->
+    <path d="M178,92
+             Q190,100 198,130
+             Q202,148 192,156
+             Q178,164 168,148
+             Q162,134 166,110 Z"/>
+    <path d="M186,108 Q192,126 188,142" stroke="{{TIP}}" stroke-width="2" fill="none" opacity="0.6"/>
+  </g>
+
+  <!-- 头（椭圆！比猫头稍长 + 口鼻区白底） -->
+  <g class="layer layer-head" fill="{{MAIN}}">
+    <ellipse cx="130" cy="128" rx="62" ry="58"/>
+    <!-- 口鼻区（白色底） -->
+    <ellipse cx="130" cy="154" rx="34" ry="24" fill="{{BELLY}}" stroke="{{STROKE}}"/>
+    <!-- 腮红 -->
+    <ellipse cx="96"  cy="148" rx="12" ry="6" fill="#ffb3c5" stroke="none" opacity="0.8"/>
+    <ellipse cx="164" cy="148" rx="12" ry="6" fill="#ffb3c5" stroke="none" opacity="0.8"/>
+  </g>
+
+  <!-- 眼睛 -->
+  <g class="layer layer-eyes" stroke="none">
+    <!-- 左 -->
+    <g class="eye-group eye-left">
+      <g class="eye-normal">
+        <ellipse cx="112" cy="126" rx="11" ry="13" fill="#1a1a1a"/>
+        <ellipse cx="112" cy="126" rx="8"  ry="10" fill="#2a2a2e"/>
+        <circle  cx="115" cy="120" r="4.5" fill="#fff"/>
+        <circle  cx="109" cy="132" r="1.6" fill="#fff"/>
+      </g>
+      <g class="eye-happy" opacity="0">
+        <path d="M98,126 Q112,112 126,126" stroke="{{STROKE}}" stroke-width="3.2" fill="none"/>
+      </g>
+      <g class="eye-sleepy" opacity="0">
+        <path d="M98,128 Q112,136 126,128" stroke="{{STROKE}}" stroke-width="2.6" fill="none"/>
+      </g>
+      <g class="eye-sad" opacity="0">
+        <path d="M98,120 Q112,132 126,120" stroke="{{STROKE}}" stroke-width="3.2" fill="none"/>
+      </g>
+    </g>
+    <!-- 右 -->
+    <g class="eye-group eye-right">
+      <g class="eye-normal">
+        <ellipse cx="148" cy="126" rx="11" ry="13" fill="#1a1a1a"/>
+        <ellipse cx="148" cy="126" rx="8"  ry="10" fill="#2a2a2e"/>
+        <circle  cx="151" cy="120" r="4.5" fill="#fff"/>
+        <circle  cx="145" cy="132" r="1.6" fill="#fff"/>
+      </g>
+      <g class="eye-happy" opacity="0">
+        <path d="M134,126 Q148,112 162,126" stroke="{{STROKE}}" stroke-width="3.2" fill="none"/>
+      </g>
+      <g class="eye-sleepy" opacity="0">
+        <path d="M134,128 Q148,136 162,128" stroke="{{STROKE}}" stroke-width="2.6" fill="none"/>
+      </g>
+      <g class="eye-sad" opacity="0">
+        <path d="M134,120 Q148,132 162,120" stroke="{{STROKE}}" stroke-width="3.2" fill="none"/>
+      </g>
+    </g>
+  </g>
+
+  <!-- 鼻（大黑圆！和猫的粉三角完全不同）+ 嘴 -->
+  <g class="layer layer-mouth" stroke="{{STROKE}}" stroke-width="1.6">
+    <!-- 大鼻头 -->
+    <ellipse cx="130" cy="150" rx="7" ry="5.5" fill="#1a1a1a"/>
+    <ellipse cx="127" cy="148" rx="2" ry="1.4" fill="#fff" opacity="0.55" stroke="none"/>
+    <!-- 上唇 -->
+    <path d="M125,155 Q130,158 135,155" fill="none"/>
+    <!-- 微笑 -->
+    <path class="mouth-smile" d="M123,160 Q130,168 137,160" fill="none" stroke-width="1.8"/>
+    <!-- 胡须 -->
+    <path d="M88,156 L106,154" stroke="#1a1a1a38" stroke-width="1" fill="none"/>
+    <path d="M88,162 L106,160" stroke="#1a1a1a38" stroke-width="1" fill="none"/>
+    <path d="M172,156 L154,154" stroke="#1a1a1a38" stroke-width="1" fill="none"/>
+    <path d="M172,162 L154,160" stroke="#1a1a1a38" stroke-width="1" fill="none"/>
+  </g>
+
+  <!-- 花纹 / 围巾 / 配饰占位 -->
+  <!-- FUR_MARKS_PLACEHOLDER -->
+  <!-- SCARF_PLACEHOLDER -->
+  <!-- ACCESSORY_PLACEHOLDER -->
+</g>`;
+
+/* ---------- 花色花纹 overlay（按 color 生成） ---------- */
+function buildFurMarks(color, pal) {
+  if (!pal) return "";
+  if (pal.stripes) {
+    // 虎斑：额头 M 形 + 身体横纹
+    return `<g fill="none" stroke="${pal.tip}" stroke-width="2" stroke-linecap="round" opacity="0.6">
+      <path d="M120,88 Q130,100 140,88"/>
+      <path d="M105,96 Q130,104 155,96" opacity="0.5"/>
+      <path d="M90,170 Q130,178 170,170"/>
+      <path d="M95,190 Q130,196 165,190" opacity="0.5"/>
+    </g>`;
+  }
+  if (pal.mask) {
+    // 暹罗：脸部 mask
+    return `<g>
+      <ellipse cx="130" cy="142" rx="36" ry="28" fill="${pal.tip}" opacity="0.85"/>
+    </g>`;
+  }
+  if (pal.patches) {
+    // 三花：三块大斑块（头顶、左肩、右臀）
+    return `<g opacity="0.9">
+      <ellipse cx="110" cy="80" rx="22" ry="18" fill="${pal.tip}"/>
+      <ellipse cx="160" cy="175" rx="26" ry="20" fill="${pal.tip}"/>
+      <ellipse cx="100" cy="200" rx="18" ry="14" fill="#f5a76a"/>
+    </g>`;
+  }
+  return "";
 }
+
+/* ---------- 体型 transform scale ---------- */
+function bodyScale(body) {
+  return { slim: 0.9, normal: 1, round: 1.08, chubby: 1.13, fluffy: 1.05 }[body] || 1;
+}
+
+/* ---------- 渲染主函数 ---------- */
+const PetModel = {
+  buildSVG(p) {
+    const fam   = p.family || "cat";
+    const pal   = COLOR_PALETTE[p.color] || DEFAULT_COLOR;
+    const scale = bodyScale(p.body);
+    const tmpl  = fam === "dog" ? DOG_TEMPLATE : CAT_TEMPLATE;
+
+    // 1. 颜色占位符替换
+    let svg = tmpl
+      .replaceAll("{{MAIN}}",   pal.main)
+      .replaceAll("{{BELLY}}",  pal.belly)
+      .replaceAll("{{STROKE}}", pal.stroke)
+      .replaceAll("{{TIP}}",    pal.tip)
+      .replaceAll("{{LIGHT}}",  pal.light);
+
+    // 2. 花纹
+    const furMarks = buildFurMarks(p.color, pal);
+    svg = svg.replace("<!-- FUR_MARKS_PLACEHOLDER -->", furMarks);
+
+    // 3. 配饰
+    const costume = this.buildCostumeSVG(p.costume);
+    svg = svg.replace("<!-- ACCESSORY_PLACEHOLDER -->", costume);
+
+    // 4. 围巾
+    const scarf = p.costume === "🧣" ? this.buildScarfSVG() : "";
+    svg = svg.replace("<!-- SCARF_PLACEHOLDER -->", scarf);
+
+    // 5. 整体体型缩放（包一层 g transform）
+    svg = `<g transform="scale(${scale}) translate(${(1 - 1/scale) * 130}, ${(1 - 1/scale) * 130})">${svg}</g>`;
+
+    return svg;
+  },
+
+  /* ---------- 配饰 SVG（原生 path 贴合身体） ---------- */
+  buildCostumeSVG(costume) {
+    if (!costume || costume === "🧣") return "";
+    // 全部坐标相对于 viewBox 260x260，猫和狗的头顶/脖子位置差不多
+    switch (costume) {
+      case "👑":
+        // 皇冠贴合头顶弧面（头中心 130, 118 半径 54，皇冠底部 y ≈ 62）
+        return `<g class="layer layer-accessory">
+          <path d="M106,64 L112,44 L124,58 L130,34 L136,58 L148,44 L154,64 Z"
+                fill="#ffd84d" stroke="#c9a000" stroke-width="1.8"/>
+          <circle cx="112" cy="44" r="3" fill="#ff7676"/>
+          <circle cx="130" cy="34" r="3" fill="#74b9ff"/>
+          <circle cx="148" cy="44" r="3" fill="#7bed9f"/>
+        </g>`;
+      case "🎩":
+        // 礼帽：梯形+帽檐（贴合头顶）
+        return `<g class="layer layer-accessory">
+          <path d="M112,62 L148,62 L142,40 L118,40 Z" fill="#2a2a2e" stroke="#121215" stroke-width="1.5"/>
+          <rect x="104" y="60" width="52" height="6" rx="3" fill="#2a2a2e" stroke="#121215" stroke-width="1.5"/>
+          <rect x="116" y="48" width="28" height="3" fill="#d63031"/>
+        </g>`;
+      case "🌸":
+        // 樱花（头顶左侧）
+        return `<g class="layer layer-accessory">
+          ${[0,72,144,216,288].map(a => {
+            const r = 8; const fx = 112, fy = 58;
+            return `<circle cx="${fx + Math.cos(a*Math.PI/180)*r}" cy="${fy + Math.sin(a*Math.PI/180)*r}" r="6" fill="#ffb7c5" stroke="#d99aa9" stroke-width="0.8"/>`;
+          }).join("")}
+          <circle cx="112" cy="58" r="3.5" fill="#ffe066"/>
+        </g>`;
+      case "🎀":
+        // 蝴蝶结（头顶右侧）
+        return `<g class="layer layer-accessory">
+          <path d="M148,42 L164,36 L164,48 Z" fill="#ff7676" stroke="#c0392b" stroke-width="1.2"/>
+          <path d="M148,42 L132,36 L132,48 Z" fill="#ff7676" stroke="#c0392b" stroke-width="1.2"/>
+          <circle cx="148" cy="42" r="3.5" fill="#c0392b"/>
+        </g>`;
+      case "🦋":
+        // 蝴蝶（头顶）
+        return `<g class="layer layer-accessory">
+          <ellipse cx="122" cy="54" rx="10" ry="7" fill="#74b9ff" stroke="#0984e3" stroke-width="1"/>
+          <ellipse cx="138" cy="54" rx="10" ry="7" fill="#74b9ff" stroke="#0984e3" stroke-width="1"/>
+          <rect x="129" y="44" width="2" height="20" rx="1" fill="#2d3436"/>
+          <circle cx="122" cy="52" r="2" fill="#fff" stroke="none"/>
+          <circle cx="138" cy="52" r="2" fill="#fff" stroke="none"/>
+        </g>`;
+      case "⭐": {
+        // 星星（头顶）
+        const cx=130, cy=46, r1=12, r2=5; let pts=[];
+        for (let i=0;i<10;i++){ const r=i%2===0?r1:r2; const a=-Math.PI/2+i*Math.PI/5; pts.push(`${cx+Math.cos(a)*r},${cy+Math.sin(a)*r}`); }
+        return `<g class="layer layer-accessory"><polygon points="${pts.join(' ')}" fill="#ffe066" stroke="#c9a000" stroke-width="1.2"/></g>`;
+      }
+    }
+    return "";
+  },
+
+  /* ---------- 围巾 SVG（原生 path 绕脖子一圈） ---------- */
+  buildScarfSVG() {
+    // 脖子位置：头底 y ≈ 170，身体顶 y ≈ 150，围巾绕在 y≈172
+    return `<g class="layer layer-scarf">
+      <!-- 主体弧形 -->
+      <path d="M95,170
+               Q82,176 85,190
+               L175,190
+               Q178,176 165,170
+               Z"
+            fill="#ff7a9c" stroke="#d84c74" stroke-width="1.8"/>
+      <!-- 流苏 -->
+      <path d="M168,188 L176,208" stroke="#ff7a9c" stroke-width="5" stroke-linecap="round"/>
+      <path d="M176,188 L184,210" stroke="#ff7a9c" stroke-width="5" stroke-linecap="round"/>
+      <!-- 小绒球 -->
+      <circle cx="180" cy="212" r="5" fill="#ffb3c5" stroke="#d84c74" stroke-width="1"/>
+    </g>`;
+  },
+
+  /* ---------- 主渲染入口 ---------- */
+  render() {
+    // 兜底 pet 对象（避免字段缺失）
+    const p = Object.assign({
+      family: "cat", color: "orange", body: "normal", costume: "",
+      stats: { love: 70, hunger: 60, energy: 80 }, sleep: false,
+    }, pet);
+
+    // 名字
+    document.getElementById("petNameTag").textContent = pet.name;
+
+    // SVG 重绘
+    const svg = document.getElementById("petSvg");
+    if (svg) {
+      svg.innerHTML = this.buildSVG(p);
+    }
+
+    // 状态条
+    updateBars();
+
+    // 情绪 class + sleep class
+    const stage = document.getElementById("petCharacter");
+    if (stage) {
+      stage.classList.remove("mood-happy", "mood-sad", "mood-lazy", "sleepy");
+      if (p.sleep) {
+        stage.classList.add("sleepy");
+      } else {
+        const { love, hunger, energy } = p.stats;
+        if (love < 25)                               stage.classList.add("mood-sad");
+        else if (hunger < 25 || energy < 20)         stage.classList.add("mood-lazy");
+        else if (love > 65 && hunger > 45 && energy > 35) stage.classList.add("mood-happy");
+      }
+    }
+
+    // sleep 按钮文字 + zzz
+    const sleepBtn = document.getElementById("sleepBtn");
+    if (sleepBtn) sleepBtn.innerHTML = p.sleep ? "☀️ 起床啦，太阳晒屁股咯" : "🌙 晚安，做个好梦";
+    document.getElementById("sleepZzz")?.classList.toggle("hidden", !p.sleep);
+
+    // costume-btn active 态
+    document.querySelectorAll(".costume-btn").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.costume === p.costume);
+    });
+  },
+
+  /* ---------- 触摸区域点击反馈 ---------- */
+  onHit(area) {
+    const REACT = {
+      head:  { anim: "head-rub",   texts: ["呼噜呼噜~", "好舒服呀~ 💕", "蹭蹭你的手~", "嗯嗯~ 继续~"], love: 3, energy: -1 },
+      cheek: { anim: "ear-twitch", texts: ["捏捏脸~ 😚", "嘻嘻~好痒~", "这里也可以摸摸哦"],           love: 2, energy: -1 },
+      body:  { anim: "bounce",     texts: ["拍拍~ 啪嗒啪嗒", "我是软软的小团子~", "哇~好开心！✨"],  love: 2, energy: -2 },
+      tail:  { anim: "tail-fast",  texts: ["别拽我尾巴啦~ 😝", "摇尾巴给你看！", "尾巴尾巴~唔~"],   love: 1, energy: -2 },
+    };
+    const r = REACT[area]; if (!r) return;
+    pet.stats.love   = clamp(pet.stats.love + r.love,   0, 100);
+    pet.stats.energy = clamp(pet.stats.energy + r.energy, 0, 100);
+    savePet();
+    this.doAnim(r.anim);
+    showMood(r.texts[Math.floor(Math.random() * r.texts.length)]);
+    this.render(); // 情绪变化可能触发表情切换
+  },
+
+  /* ---------- 动画调度 ---------- */
+  doAnim(name) {
+    const pc = document.getElementById("petCharacter");
+    const stage = document.getElementById("petCharacter");
+    const head = stage?.querySelector(".layer-head");
+    const ears = stage?.querySelector(".layer-ears");
+    const tail = stage?.querySelector(".layer-tail");
+    const all = [pc, head, ears, tail];
+    // 清掉所有临时动画 class
+    ["bounce","dance","head-rub","head-tilt-left","head-tilt-right","ear-twitch","tail-fast"].forEach(c => {
+      all.forEach(el => el?.classList.remove(c));
+    });
+    const kick = (el, cls) => { if (!el) return; void el.offsetWidth; el.classList.add(cls); };
+    switch (name) {
+      case "bounce":       kick(pc, "bounce"); break;
+      case "head-rub":     kick(head, "head-rub"); break;
+      case "head-tilt":    kick(head, Math.random() < 0.5 ? "head-tilt-left" : "head-tilt-right"); break;
+      case "ear-twitch":   kick(ears, "ear-twitch"); break;
+      case "tail-fast":    kick(tail, "tail-fast"); break;
+      case "dance":
+        kick(pc, "dance");
+        setTimeout(() => pc?.classList.remove("dance"), 3200);
+        break;
+    }
+    setTimeout(() => {
+      ["bounce","head-rub","head-tilt-left","head-tilt-right","ear-twitch","tail-fast"].forEach(c => {
+        all.forEach(el => el?.classList.remove(c));
+      });
+    }, 1000);
+  },
+
+  /* ---------- 初始化：触摸事件 + 数值自然衰减 + 自发小动作 ---------- */
+  init() {
+    // 触摸区域
+    document.querySelectorAll(".hitbox").forEach((hb) => {
+      const handler = (e) => {
+        e.preventDefault();
+        if (pet.sleep) return showMood("嘘~ 它睡着了 💤");
+        PetModel.onHit(hb.dataset.area);
+        hb.classList.add("active");
+        setTimeout(() => hb.classList.remove("active"), 500);
+      };
+      hb.addEventListener("click", handler);
+      hb.addEventListener("touchstart", handler, { passive: false });
+    });
+
+    // 数值衰减（只有在 /play 路由才工作，避免创建页被干扰）
+    setInterval(() => {
+      if (Router.current !== "/play" || pet.sleep) return;
+      pet.stats.hunger = clamp(pet.stats.hunger - 1, 0, 100);
+      pet.stats.energy = clamp(pet.stats.energy - 1, 0, 100);
+      pet.stats.love   = clamp(pet.stats.love - 0.5, 0, 100);
+      savePet();
+      updateBars();
+      PetModel.render(); // 可能触发情绪切换
+    }, 20000);
+
+    // 自发小动作（增加生命力）
+    setInterval(() => {
+      if (Router.current !== "/play" || pet.sleep) return;
+      const acts = ["head-tilt", "ear-twitch", "tail-fast"];
+      PetModel.doAnim(acts[Math.floor(Math.random() * acts.length)]);
+    }, 9000);
+  },
+};
+
+/* ---------- 状态条 ---------- */
 function updateBars() {
   document.getElementById("loveBar").style.width   = pet.stats.love   + "%";
   document.getElementById("hungerBar").style.width = pet.stats.hunger + "%";
   document.getElementById("energyBar").style.width = pet.stats.energy + "%";
 }
 
-/* ============================================================
-   🎮 互动区（原逻辑完全保留）
-   ============================================================ */
+/* ---------- 互动按钮（对接 PetModel） ---------- */
 const emojiMap = { rice: "🍚", fish: "🐟", meat: "🍖", cookie: "🍪", cream: "🍦", candy: "🍭" };
 
 document.querySelectorAll(".food-btn, .treat-btn").forEach((btn) => {
@@ -559,7 +1076,8 @@ document.querySelectorAll(".food-btn, .treat-btn").forEach((btn) => {
     dropFood(emojiMap[btn.dataset.type]);
     pet.stats.hunger = clamp(pet.stats.hunger + (btn.classList.contains("treat-btn") ? 15 : 25), 0, 100);
     pet.stats.love   = clamp(pet.stats.love + 5, 0, 100);
-    savePet(); updateBars(); wigglePet(); showMood(randomMood("eat"));
+    savePet(); PetModel.render(); PetModel.doAnim("bounce");
+    showMood(randomMood("eat"));
   });
 });
 document.querySelectorAll(".play-btn").forEach((btn) => {
@@ -567,26 +1085,22 @@ document.querySelectorAll(".play-btn").forEach((btn) => {
     if (pet.sleep) return showMood("嘘~ 它睡着了 💤");
     pet.stats.love   = clamp(pet.stats.love + 10, 0, 100);
     pet.stats.energy = clamp(pet.stats.energy - 8, 0, 100);
-    savePet(); updateBars(); wigglePet(); showMood(randomMood(btn.dataset.type));
+    savePet(); PetModel.render();
+    if (btn.dataset.type === "pat")       PetModel.doAnim("head-rub");
+    else if (btn.dataset.type === "ball") PetModel.doAnim("bounce");
+    else if (btn.dataset.type === "dance") PetModel.doAnim("dance");
+    showMood(randomMood(btn.dataset.type));
   });
 });
 document.getElementById("sleepBtn").addEventListener("click", () => {
   pet.sleep = !pet.sleep;
-  const btn = document.getElementById("sleepBtn");
-  const petChar = document.getElementById("petCharacter");
-  if (pet.sleep) {
-    btn.innerHTML = "☀️ 起床啦，太阳晒屁股咯";
-    petChar.style.animation = "none"; petChar.style.transform = "scale(0.95)";
-    showMood("晚安~ 💤");
-  } else {
-    btn.innerHTML = "🌙 晚安，做个好梦";
-    petChar.style.animation = ""; petChar.style.transform = "";
-    showMood("呀~ 醒啦！☀️");
-  }
+  savePet(); PetModel.render();
+  showMood(pet.sleep ? "晚安~ 💤" : "呀~ 醒啦！☀️");
 });
 document.querySelectorAll(".costume-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
-    pet.costume = btn.dataset.costume; savePet(); renderPet();
+    pet.costume = btn.dataset.costume; savePet();
+    PetModel.render(); PetModel.doAnim("bounce");
     showMood(pet.costume ? "好漂亮~ 💕" : "素颜也好看 ✨");
   });
 });
@@ -604,19 +1118,10 @@ function dropFood(emoji) {
     setTimeout(() => el.remove(), 1500);
   }
 }
-function wigglePet() {
-  const petChar = document.getElementById("petCharacter");
-  petChar.style.transition = "transform 0.15s";
-  petChar.style.transform = "rotate(-6deg)";
-  setTimeout(() => (petChar.style.transform = "rotate(6deg)"), 120);
-  setTimeout(() => (petChar.style.transform = ""), 260);
-  setTimeout(() => (petChar.style.transition = ""), 300);
-}
-
 const moodBank = {
-  eat: ["好吃好吃！😋", "再来一点嘛~", "满足~ 🌟"],
-  pat: ["呼噜呼噜~", "好舒服呀~", "嗯嗯~ 继续~"],
-  ball: ["接招！✨", "再来一次！", "我跑得最快！"],
+  eat:   ["好吃好吃！😋", "再来一点嘛~", "满足~ 🌟"],
+  pat:   ["呼噜呼噜~", "好舒服呀~", "嗯嗯~ 继续~"],
+  ball:  ["接招！✨", "再来一次！", "我跑得最快！"],
   dance: ["转圈圈~ 💃", "一起摇摆~", "好开心呀！"],
 };
 function randomMood(cat) {
@@ -935,9 +1440,10 @@ document.getElementById("farewellCloseBtn").addEventListener("click", () => {
 // smoothGo 已被 Router.go 替代
 
 restoreFormFromPet();
-renderPet();
 renderChatHistory();
 
-// 先绑定 auth 事件 → 再初始化路由（首次 render 会自动做守卫 + 显隐）
+// 先绑定 auth 事件 → 再初始化路由 → 最后初始化宠物模型（hitbox/定时器）
 initAuthGuard();
 Router.init();
+PetModel.init();
+PetModel.render();

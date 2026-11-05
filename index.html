@@ -249,20 +249,29 @@
           </div>
         </div>
 
-        <!-- 宠物形象 -->
+        <!-- 宠物形象 · 分层 SVG 2D 舞台 -->
         <div class="pet-character" id="petCharacter">
-          <div class="pet-avatar" id="petAvatar">
-            <div class="pet-placeholder">🐱</div>
-          </div>
+          <!-- 触摸区域（最上层） -->
+          <div class="hitbox hit-head"  data-area="head"  title="摸摸头"></div>
+          <div class="hitbox hit-cheek" data-area="cheek" title="捏捏脸"></div>
+          <div class="hitbox hit-body"  data-area="body"  title="拍拍身体"></div>
+          <div class="hitbox hit-tail"  data-area="tail"  title="摇摇尾巴"></div>
+
+          <!-- SVG 动态生成（PetModel.render 每次重绘） -->
+          <svg class="pet-svg" id="petSvg" viewBox="0 0 260 260" xmlns="http://www.w3.org/2000/svg"></svg>
+
+          <!-- 名字 + 气泡 -->
           <div class="pet-name-tag" id="petNameTag">小可爱</div>
-          <div class="pet-costume" id="petCostume"></div>
           <div class="pet-mood-bubble hidden" id="moodBubble">
             <span id="moodText">好开心~</span>
           </div>
-        </div>
 
-        <!-- 掉落的食物动画容器 -->
-        <div class="food-container" id="foodContainer"></div>
+          <!-- 睡觉 zzz -->
+          <div class="sleep-zzz hidden" id="sleepZzz">💤 zzz 💤</div>
+
+          <!-- 掉落食物 -->
+          <div class="food-container" id="foodContainer"></div>
+        </div>
       </div>
 
       <!-- 操作面板 -->
