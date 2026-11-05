@@ -763,42 +763,137 @@ textarea { resize: vertical; min-height: 100px; }
   box-shadow: 0 4px 16px rgba(255, 143, 177, 0.3);
 }
 
-/* ---------- ⏰ 闹钟 ---------- */
+/* ---------- ⏳ 倒计时（代替旧闹钟） ---------- */
 .alarm-wrapper {
-  max-width: 900px;
+  max-width: 960px;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1.2fr 1fr;
   gap: 32px;
 }
 
-.alarm-clock {
+/* 左侧：陪伴宠物 + 大数字 */
+.timer-display-wrap {
   background: var(--card-bg);
   border-radius: var(--radius-lg);
-  padding: 48px 24px;
+  padding: 32px 24px;
+  box-shadow: var(--shadow-pop);
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  box-shadow: var(--shadow-pop);
+  gap: 24px;
 }
 
-.clock-face {
+/* 陪伴小宠物（小尺寸） */
+.timer-pet {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.timer-pet-stage {
+  width: 140px; height: 140px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 45%, #fff5f0 0%, #ffe8f0 60%, #f5c7d8 100%);
+  box-shadow: 0 10px 30px rgba(255, 143, 177, 0.35), inset 0 0 20px #ffffff80;
+  overflow: visible;
+  position: relative;
+  animation: timer-pet-idle 3s ease-in-out infinite;
+}
+@keyframes timer-pet-idle {
+  0%,100% { transform: translateY(0) rotate(-2deg); }
+  50%     { transform: translateY(-4px) rotate(2deg); }
+}
+.timer-pet-stage.wiggle { animation: timer-wiggle 0.8s ease; }
+@keyframes timer-wiggle {
+  0%,100% { transform: rotate(-6deg); }
+  50%     { transform: rotate(6deg); }
+}
+.timer-pet-stage.jump {
+  animation: timer-jump 0.8s ease !important;
+}
+@keyframes timer-jump {
+  0%,100% { transform: translateY(0); }
+  35%     { transform: translateY(-20px) scale(1.1); }
+  70%     { transform: translateY(4px)  scale(0.96); }
+}
+.timer-pet-svg {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+.timer-pet-tag {
+  background: #fff;
+  padding: 4px 14px;
+  border-radius: 14px;
   font-family: var(--font-fun);
-  font-size: clamp(48px, 8vw, 88px);
   color: var(--pink);
-  letter-spacing: 4px;
-  display: flex; align-items: center;
+  font-size: 13px;
+  box-shadow: var(--shadow-soft);
 }
-.clock-dot { animation: blink 1s step-end infinite; }
-@keyframes blink { 50% { opacity: 0; } }
 
-.clock-label {
-  margin-top: 12px;
-  color: var(--text-body);
+/* 倒计时大数字 */
+.timer-display {
+  text-align: center;
+}
+.timer-digits {
+  font-family: var(--font-fun);
+  font-size: clamp(42px, 7vw, 72px);
+  font-weight: 700;
+  color: var(--pink);
+  letter-spacing: 2px;
+  display: flex; align-items: baseline; justify-content: center;
+  gap: 2px;
+}
+.timer-digits .timer-colon {
+  color: #e8a0bd;
+  animation: timer-colon-blink 1s step-end infinite;
+  margin: 0 4px;
+}
+@keyframes timer-colon-blink { 50% { opacity: 0.25; } }
+.timer-label {
+  margin-top: 10px;
   font-size: 14px;
+  color: var(--text-body);
 }
 
+/* 预设按钮行 */
+.preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.preset-btn {
+  background: #f3eaf7;
+  border: 1px solid #e5d5ef;
+  color: var(--pink);
+  padding: 6px 12px;
+  border-radius: 18px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.preset-btn:hover {
+  background: var(--pink);
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(255, 107, 155, 0.3);
+}
+
+/* 开始/暂停/重置 按钮行 */
+.timer-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+.timer-actions .btn {
+  flex: 1;
+}
+
+/* 保留旧通用样式（被新复用） */
 .alarm-settings {
   background: var(--card-bg);
   border-radius: var(--radius-lg);
@@ -811,7 +906,6 @@ textarea { resize: vertical; min-height: 100px; }
   font-size: 20px;
   margin-bottom: 18px;
 }
-
 .time-picker {
   display: flex; align-items: center; gap: 8px;
 }
@@ -1429,7 +1523,7 @@ textarea { resize: vertical; min-height: 100px; }
   .hero { padding: 40px 16px; }
   .pet-avatar { width: 140px; height: 140px; }
   .pet-avatar .pet-placeholder { font-size: 70px; }
-  .clock-face { font-size: 56px; }
+  .timer-digits { font-size: 56px; }
   .farewell-card { padding: 36px 20px; }
   .chat-window { padding: 18px 14px; }
 }

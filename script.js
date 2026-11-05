@@ -1314,77 +1314,262 @@ document.getElementById("toggleHistoryBtn").addEventListener("click", () => {
 });
 
 /* ============================================================
-   ⏰ 闹钟（零改动）
+   ⏳ 宠物倒计时 Timer · 陪伴提醒
    ============================================================ */
-const hourSel = document.getElementById("alarmHour");
-const minSel  = document.getElementById("alarmMinute");
-for (let i = 0; i < 24; i++) hourSel.innerHTML += `<option value="${i}">${String(i).padStart(2, "0")}</option>`;
-for (let i = 0; i < 60; i += 5) minSel.innerHTML += `<option value="${i}">${String(i).padStart(2, "0")}</option>`;
+const TIMER_KEY = "pet_planet_timer";
 
-function updateClock() {
-  const d = new Date();
-  document.getElementById("clockHours").textContent = String(d.getHours()).padStart(2, "0");
-  document.getElementById("clockMinutes").textContent = String(d.getMinutes()).padStart(2, "0");
-  const wd = ["日", "一", "二", "三", "四", "五", "六"][d.getDay()];
-  const h = d.getHours();
-  const greet = h < 6 ? "夜深了" : h < 11 ? "早上好呀" : h < 14 ? "午安" : h < 18 ? "下午好" : h < 22 ? "晚上好" : "该睡啦";
-  document.getElementById("clockLabel").textContent = `星期${wd} · ${greet} ☀️`;
-}
-setInterval(updateClock, 1000); updateClock();
+const Timer = {
+  /* 状态 */
+  total: 0,        // 本次设置的总秒数（固定）
+  remaining: 0,     // 剩余秒数（变化）
+  running: false,   // 是否在跑
+  tickInterval: null,
+  petTimerInterval: null,
+  endAt: null,      // 结束时间戳（系统时间，用于跨页面恢复）
 
-document.getElementById("setAlarmBtn").addEventListener("click", () => {
-  const days = [...document.querySelectorAll(".day-checkboxes input:checked")].map((i) => Number(i.value));
-  const alarm = { hours: Number(hourSel.value), mins: Number(minSel.value),
-                  sound: document.querySelector('input[name="alarmSound"]:checked').value, days };
-  localStorage.setItem(ALARM_KEY, JSON.stringify(alarm));
-  showAlarmStatus(alarm); startAlarmWatcher(alarm);
-});
+  /* 初始化：填充 select + 事件绑定 + 恢复本地存档 */
+  init() {
+    // 填充 select
+    const hs = document.getElementById("timerHSel");
+    const ms = document.getElementById("timerMSel");
+    const ss = document.getElementById("timerSSel");
+    for (let i = 0; i < 24; i++) hs.innerHTML += `<option value="${i}">${String(i).padStart(2, "0")}</option>`;
+    for (let i = 0; i < 60; i++) ms.innerHTML += `<option value="${i}">${String(i).padStart(2, "0")}</option>`;
+    for (let i = 0; i < 60; i++) ss.innerHTML += `<option value="${i}">${String(i).padStart(2, "0")}</option>`;
+    hs.value = 0; ms.value = 5; ss.value = 0;
 
-function showAlarmStatus(alarm) {
-  document.getElementById("alarmStatus").classList.remove("hidden");
-  const dayMap = ["日", "一", "二", "三", "四", "五", "六"];
-  const daysText = alarm.days.length === 7 ? "每天" : alarm.days.map((d) => "周" + dayMap[d]).join(" / ");
-  document.getElementById("alarmDetail").textContent =
-    `将在 ${String(alarm.hours).padStart(2, "0")}:${String(alarm.mins).padStart(2, "0")}（${daysText}）叫你起床`;
-}
-function startAlarmWatcher(alarm) {
-  clearInterval(alarmTimer);
-  alarmTimer = setInterval(() => {
-    const n = new Date();
-    if (alarm.days.includes(n.getDay()) && n.getHours() === alarm.hours && n.getMinutes() === alarm.mins)
-      triggerAlarm(alarm);
-  }, 1000);
-}
-(function loadAlarm() {
-  try {
-    const saved = localStorage.getItem(ALARM_KEY);
-    if (saved) {
-      const a = JSON.parse(saved);
-      hourSel.value = a.hours; minSel.value = a.mins;
-      const s = document.querySelector(`input[name="alarmSound"][value="${a.sound}"]`);
-      if (s) s.checked = true;
-      document.querySelectorAll(".day-checkboxes input").forEach((cb) => cb.checked = a.days.includes(Number(cb.value)));
-      showAlarmStatus(a); startAlarmWatcher(a);
+    // 快捷预设按钮
+    document.querySelectorAll(".preset-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const sec = Number(btn.dataset.sec);
+        hs.value = Math.floor(sec / 3600);
+        ms.value = Math.floor((sec % 3600) / 60);
+        ss.value = sec % 60;
+        document.getElementById("timerLabel").textContent = `已选 ${Math.floor(sec/60)} 分钟，开始让它陪你 ✨`;
+        this.renderDisplay(sec);
+      });
+    });
+
+    // 按钮事件
+    document.getElementById("timerStartBtn").addEventListener("click", () => this.start());
+    document.getElementById("timerPauseBtn").addEventListener("click", () => this.pause());
+    document.getElementById("timerResetBtn").addEventListener("click", () => this.reset());
+
+    // 声音选择回存
+    const savedSound = localStorage.getItem(TIMER_KEY + "_sound");
+    if (savedSound) {
+      const el = document.querySelector(`input[name="alarmSound"][value="${savedSound}"]`);
+      if (el) el.checked = true;
     }
-  } catch (e) {}
-})();
+    document.querySelectorAll('input[name="alarmSound"]').forEach((r) => {
+      r.addEventListener("change", () => localStorage.setItem(TIMER_KEY + "_sound", r.value));
+    });
 
-function triggerAlarm(alarm) {
-  clearInterval(alarmTimer);
-  document.getElementById("modalPet").textContent = pet.breedEmoji || (pet.family === "dog" ? "🐶" : "🐱");
-  document.getElementById("modalSub").textContent = `${pet.name} 在叫你起床~`;
-  document.getElementById("alarmModal").classList.remove("hidden");
-  playAlarmSound(alarm.sound);
-}
+    // 跨页面恢复（如果上次还在跑）
+    this.restore();
+    this.renderDisplay(this.remaining || this.readSelections());
+  },
+
+  /* 读 当前 select 的值 → 秒 */
+  readSelections() {
+    return Number(document.getElementById("timerHSel").value) * 3600
+         + Number(document.getElementById("timerMSel").value) * 60
+         + Number(document.getElementById("timerSSel").value);
+  },
+
+  /* 渲染 数字显示 + 状态栏 */
+  renderDisplay(sec) {
+    sec = Math.max(0, Math.floor(sec));
+    const h = String(Math.floor(sec / 3600)).padStart(2, "0");
+    const m = String(Math.floor((sec % 3600) / 60)).padStart(2, "0");
+    const s = String(sec % 60).padStart(2, "0");
+    document.getElementById("timerH").textContent = h;
+    document.getElementById("timerM").textContent = m;
+    document.getElementById("timerS").textContent = s;
+
+    // 状态栏
+    const statusEl = document.getElementById("timerStatus");
+    const okEl = document.getElementById("timerStatusOk");
+    const detailEl = document.getElementById("timerStatusDetail");
+    if (this.running || this.remaining > 0) {
+      statusEl.classList.remove("hidden");
+      if (this.running) {
+        okEl.textContent = "⏳ 倒计时进行中...";
+        detailEl.textContent = `剩余 ${h}:${m}:${s}`;
+      } else {
+        okEl.textContent = "⏸ 已暂停";
+        detailEl.textContent = `剩余 ${h}:${m}:${s}（继续）`;
+      }
+    } else {
+      statusEl.classList.add("hidden");
+    }
+  },
+
+  /* 开始 */
+  start() {
+    if (this.running) return;
+    // 如果 remaining 为 0，从 select 读取
+    if (this.remaining <= 0) {
+      this.total = this.readSelections();
+      this.remaining = this.total;
+    }
+    if (this.remaining <= 0) {
+      document.getElementById("timerLabel").textContent = "先选一个时间哦 🙈";
+      return;
+    }
+    this.running = true;
+    this.endAt = Date.now() + this.remaining * 1000;
+    this.save();
+    this.updateButtons();
+    document.getElementById("timerLabel").textContent = `它会陪你 ${Math.floor(this.remaining/60)} 分钟 💗`;
+    // tick：用 endAt 反推，避免 setInterval 漂移
+    this.tickInterval = setInterval(() => {
+      this.remaining = Math.max(0, Math.round((this.endAt - Date.now()) / 1000));
+      this.renderDisplay(this.remaining);
+      if (this.remaining <= 0) this.finish();
+    }, 250);
+    // 小宠物摇摆（每秒换一次情绪气泡）
+    this.petTimerInterval = setInterval(() => this.tickPet(), 1200);
+  },
+
+  /* 暂停 */
+  pause() {
+    if (!this.running) return;
+    this.running = false;
+    clearInterval(this.tickInterval);
+    clearInterval(this.petTimerInterval);
+    this.tickInterval = this.petTimerInterval = null;
+    this.endAt = null;
+    this.save();
+    this.updateButtons();
+    this.renderDisplay(this.remaining);
+  },
+
+  /* 重置 */
+  reset() {
+    this.running = false;
+    clearInterval(this.tickInterval);
+    clearInterval(this.petTimerInterval);
+    this.tickInterval = this.petTimerInterval = null;
+    this.total = 0; this.remaining = 0; this.endAt = null;
+    localStorage.removeItem(TIMER_KEY);
+    this.updateButtons();
+    this.renderDisplay(0);
+    document.getElementById("timerLabel").textContent = "准备好了吗？点\"开始\"让它陪着你 ✨";
+    // 重绘陪伴宠物
+    this.renderPetCompanion();
+  },
+
+  /* 到点 */
+  finish() {
+    this.running = false;
+    clearInterval(this.tickInterval);
+    clearInterval(this.petTimerInterval);
+    this.tickInterval = this.petTimerInterval = null;
+    this.total = 0; this.remaining = 0; this.endAt = null;
+    localStorage.removeItem(TIMER_KEY);
+    this.updateButtons();
+    this.renderDisplay(0);
+    this.triggerFinish();
+  },
+
+  updateButtons() {
+    const start = document.getElementById("timerStartBtn");
+    const pause = document.getElementById("timerPauseBtn");
+    if (this.running) {
+      start.disabled = true; pause.disabled = false;
+      start.textContent = "⏳ 倒计时中...";
+    } else {
+      start.disabled = false; pause.disabled = true;
+      start.textContent = this.remaining > 0 ? "▶️ 继续" : "▶️ 开始";
+    }
+  },
+
+  /* 陪伴小宠物：每秒切换一个小动作 + 情绪文字 */
+  tickPet() {
+    const tag = document.getElementById("timerPetTag");
+    const sayings = [
+      "陪着你呢~ 💕", "加油加油！✨", "时间在走哦~", "我在呀~ 🐾",
+      "快到啦！", "摸摸头~ 🥰", "别着急~", "我也在等~",
+    ];
+    if (tag) tag.textContent = sayings[Math.floor(Math.random() * sayings.length)];
+    const stage = document.getElementById("timerPetStage");
+    if (stage) {
+      stage.classList.remove("wiggle");
+      void stage.offsetWidth;
+      stage.classList.add("wiggle");
+    }
+  },
+
+  /* 到点了：弹窗 + 声音 + 宠物小形象上的动画 */
+  triggerFinish() {
+    const breed = pet.breedEmoji || (pet.family === "dog" ? "🐶" : "🐱");
+    document.getElementById("modalPet").textContent = breed;
+    const h = String(Math.floor(this.total / 3600)).padStart(2, "0");
+    const m = String(Math.floor((this.total % 3600) / 60)).padStart(2, "0");
+    const sub = (this.total < 60) ? `${pet.name} 陪了你 ${this.total} 秒！`
+              : this.total < 3600 ? `${pet.name} 陪了你 ${Math.floor(this.total/60)} 分钟！`
+              : `${pet.name} 陪了你 ${h}:${m}！`;
+    document.getElementById("modalSub").textContent = sub;
+    document.getElementById("alarmModal").classList.remove("hidden");
+    document.getElementById("timerLabel").textContent = "时间到啦~ 🌟";
+    // 声音
+    const sound = document.querySelector('input[name="alarmSound"]:checked').value;
+    playAlarmSound(sound);
+    // 弹窗里小形象摇晃 + 泡泡
+    const stage = document.getElementById("timerPetStage");
+    if (stage) {
+      stage.classList.remove("jump"); void stage.offsetWidth; stage.classList.add("jump");
+    }
+  },
+
+  /* 持久化：存 remaining + endAt，恢复时反推 */
+  save() {
+    const data = { remaining: this.remaining, total: this.total, endAt: this.endAt, running: this.running };
+    localStorage.setItem(TIMER_KEY, JSON.stringify(data));
+  },
+  restore() {
+    try {
+      const s = localStorage.getItem(TIMER_KEY);
+      if (!s) return;
+      const d = JSON.parse(s);
+      if (!d || !d.remaining) return;
+      // 如果有 endAt 且没到点（说明还在跑）
+      if (d.endAt && d.endAt > Date.now()) {
+        this.remaining = Math.round((d.endAt - Date.now()) / 1000);
+        this.total = d.total || d.remaining;
+        this.endAt = d.endAt;
+        this.running = true;
+        // 立即恢复
+        setTimeout(() => this.start(), 0);
+      } else {
+        // 暂停中的状态
+        this.remaining = d.remaining;
+        this.total = d.total || d.remaining;
+        this.running = false;
+      }
+      this.updateButtons();
+      this.renderDisplay(this.remaining);
+    } catch (e) {}
+  },
+
+  /* 渲染陪伴小宠物 SVG（复用 PetModel.buildSVG） */
+  renderPetCompanion() {
+    const svg = document.getElementById("timerPetSvg");
+    if (!svg) return;
+    svg.innerHTML = PetModel.buildSVG(pet || { family: "cat", color: "orange", body: "normal" });
+    document.getElementById("timerPetTag").textContent = pet.name || "小可爱";
+  },
+};
+
+/* 到点弹窗关闭 */
 document.getElementById("dismissAlarmBtn").addEventListener("click", () => {
-  document.getElementById("alarmModal").classList.add("hidden"); stopAlarmSound();
-});
-document.getElementById("testAlarmBtn").addEventListener("click", () => {
-  const sound = document.querySelector('input[name="alarmSound"]:checked').value;
-  playAlarmSound(sound); setTimeout(stopAlarmSound, 3000);
+  document.getElementById("alarmModal").classList.add("hidden");
+  stopAlarmSound();
 });
 
-let activeOsc = [], activeInterval = null;
+/* 声音底层（保留复用） */
+let activeOsc = [], activeInterval = null; // audioCtx 已在顶部声明
 function playAlarmSound(type) {
   stopAlarmSound();
   audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
@@ -1418,7 +1603,9 @@ function stopAlarmSound() {
    ============================================================ */
 document.getElementById("farewellBtn").addEventListener("click", () => {
   if (!confirm("确定要告别吗？\n这会清空宠物档案和所有对话记录。")) return;
-  document.getElementById("farewellModal").classList.remove("hidden"); clearInterval(alarmTimer);
+  document.getElementById("farewellModal").classList.remove("hidden");
+  try { Timer.reset(); } catch (e) {}
+  try { clearInterval(alarmTimer); } catch (e) {}
 });
 document.getElementById("farewellCloseBtn").addEventListener("click", () => {
   localStorage.removeItem(PET_KEY); localStorage.removeItem(CHAT_KEY); localStorage.removeItem(ALARM_KEY);
@@ -1447,3 +1634,5 @@ initAuthGuard();
 Router.init();
 PetModel.init();
 PetModel.render();
+Timer.init();
+Timer.renderPetCompanion();
